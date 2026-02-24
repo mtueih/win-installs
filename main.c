@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include "LocalProgram.h"
 #include "dynamic-string.h"
 
@@ -25,6 +26,9 @@ typedef struct {
     TaskAction action;
     bool run_as_admin;
 } Task;
+
+void task8(void);
+void task9(void);
 
 const Task g_tasks[MAX_TASKS] = {
     { 
@@ -90,9 +94,6 @@ int getChoice(void);
 void run_task(const Task *task);
 void task_one_command(const Task *task);
 void runByPowershell(const char *command, bool admin, bool wait);
-void task8(void);
-void task9(void);
-
 
 int main(void) {
     system("chcp 65001");
@@ -202,6 +203,9 @@ void task8(void) {
     size_t len;
     bool in_softare_section;
     bool in_install_command_section;
+    bool retry;
+    char input[2] = "N";
+    int ch;
 
     printf("\n读取文件「%s」", list_file_path);
     list_file = fopen(list_file_path, "r");
@@ -218,6 +222,7 @@ void task8(void) {
     }
     in_softare_section = false;
     in_install_command_section = false;
+    retry = false;
 
     while (fgets(g_inputBuffer, CHAR_BUFFER_SIZE, list_file) != NULL) {
         // 如果没有完整读取一行，则将当前内容追加到 line 中，并继续读取
@@ -268,10 +273,18 @@ void task8(void) {
         } else if (in_install_command_section) {
             // 在安装命令部分，视为安装命令的一行
             printf("\n安装命令：「%s」", dstr_cstr(line));
-            runByPowershell(dstr_cstr(line), 
-                dstr_start_with_cstr(line, "scoop") ? false : true,
-                false
-            );
+            do {
+                runByPowershell(dstr_cstr(line), 
+                    dstr_start_with_cstr(line, "scoop") ? false : true,
+                    false
+                );
+                printf("\n安装命令「%s」\n执行完毕。是否重试？（y/N）", dstr_cstr(line));
+                scanf("%1s", input);
+                retry = (input[0] == 'y' || input[0] == 'Y');
+                while ((ch = getchar()) != '\n' && ch != EOF)
+                    ;
+            } while (retry);
+            
         }
         
         dstr_clear(line);
