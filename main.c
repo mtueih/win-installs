@@ -198,6 +198,10 @@ void run_task(const Task *task) {
 void task8(void) {
     const char * const list_file_path = "Windows 必装软件.md";
     FILE *list_file;
+    DString line;
+    size_t len;
+    bool in_softare_section;
+    bool in_install_command_section;
 
     printf("\n读取文件「%s」", list_file_path);
     list_file = fopen(list_file_path, "r");
@@ -206,9 +210,79 @@ void task8(void) {
         return;
     }
 
+    line = dstr_create();
+    if (!line) {
+        fprintf(stderr, "\n无法创建动态字符串来读取文件内容。");
+        fclose(list_file);
+        return;
+    }
+    in_softare_section = false;
+    in_install_command_section = false;
+
+    while (fgets(g_inputBuffer, CHAR_BUFFER_SIZE, list_file) != NULL) {
+        // 如果没有完整读取一行，则将当前内容追加到 line 中，并继续读取
+        len = strlen(g_inputBuffer);
+        if (g_inputBuffer[len - 1] != '\n') {
+            if (!dstr_append_cstr(line, g_inputBuffer)) {
+                fprintf(stderr, "\n无法追加读取的内容到动态字符串。");
+                dstr_destroy(line);
+                fclose(list_file);
+                return;
+            }
+            continue;
+        }
+
+        // 读取到完整的一行，此时去除默认 '\n'
+        g_inputBuffer[len - 1] = '\0';
+        if (!dstr_append_cstr(line, g_inputBuffer)) {
+            fprintf(stderr, "\n无法追加读取的内容到动态字符串。");
+            dstr_destroy(line);
+            fclose(list_file);
+            return;
+        }
+        
+        // 处理 line
+        // 一级标题，视为任务流名称
+        if (dstr_start_with_cstr(line, "# ")) {
+            printf("\n安装流【%s】", dstr_cstr(line) + 2);
+        } else if (dstr_start_with_cstr(line, "## ")) {
+            // 二级标题，视为软件分类
+            printf("\n分类「%s」", dstr_cstr(line) + 3);
+        } else if (dstr_start_with_cstr(line, "### ")) {
+            // 三级标题，视为软件名称
+            printf("\n软件「%s」", dstr_cstr(line) + 4);
+            in_softare_section = true;
+        } else if (in_softare_section && !dstr_start_with_cstr(line, "- ")) {
+            // 在软件名称下的非列表项，视为软件描述
+            printf("\n描述：%s", dstr_cstr(line));
+        } else if (dstr_equal_cstr(line, "```powershell") && in_softare_section) {
+            // 在软件名称下遇到 PowerShell 代码块的开始，视为安装命令的开始
+            in_install_command_section = true;
+        } else if (dstr_equal_cstr(line, "```") 
+            && in_install_command_section 
+            && in_softare_section
+        ) {
+            // 在软件名称下遇到 PowerShell 代码块的结束
+            in_install_command_section = false;
+            in_softare_section = false;
+        } else if (in_install_command_section) {
+            // 在安装命令部分，视为安装命令的一行
+            printf("\n安装命令：「%s」", dstr_cstr(line));
+            runByPowershell(dstr_cstr(line), 
+                dstr_start_with_cstr(line, "scoop") ? false : true,
+                false
+            );
+        }
+        
+        dstr_clear(line);
+    }
 
 }
 
 void task9(void) {
+    size_t i;
 
+    for (i = 0; i < MAX_TASKS - 1; ++i) {
+        run_task(&g_tasks[i]);
+    }
 }
