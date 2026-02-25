@@ -42,6 +42,12 @@ const Task g_tasks[MAX_TASKS] = {
         { .command = "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" }, 
         false 
     },
+    {
+        ONE_COMMAND, 
+        "WinGet 安装「Cloudfalre Warp」", 
+        { .command = "winget install Cloudflare.Warp --custom 'ORGANIZATION=saibohuofoyyds'" }, 
+        true
+    },
     { 
         ONE_COMMAND,
         "安装「Chocolatey」", 
@@ -53,12 +59,6 @@ const Task g_tasks[MAX_TASKS] = {
         "安装「Scoop」", 
         { .command = "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression" }, 
         false
-    },
-    {
-        ONE_COMMAND, 
-        "Chocolatey 安装「Cloudfalre Warp」", 
-        { .command = "choco install warp  -y --ia 'ORGANIZATION=saibohuofoyyds'" }, 
-        true
     },
     { 
         ONE_COMMAND,
@@ -131,7 +131,8 @@ int getChoice(void) {
         while ((ch = getchar()) != '\n' && ch != EOF)
             ;
     }
-
+    while ((ch = getchar()) != '\n' && ch != EOF)
+            ;
     return choice;
 }
 
@@ -142,7 +143,7 @@ void powershell_run(const char *cmd, bool admin, bool wait) {
     if (cmd == NULL) return;
 
     cmd_args = dstr_create();
-    if (cmd_args != DSTRING_SUCCESS) {
+    if (cmd_args == NULL) {
         if (fprintf(
             stderr, 
             "[Failure] In function %s: Failed to create DString.\n", 
@@ -203,8 +204,11 @@ void task_run(const Task *task, int task_num) {
         printf("\n任务【%s】\n执行完毕。是否重试？（y/N）", task->description);
 
         retry = ((ch = getchar()) == 'y' || ch == 'Y');
-        while ((ch = getchar()) != '\n' && ch != EOF)
+        if (ch != '\n') {
+            while ((ch = getchar()) != '\n' && ch != EOF)
             ;
+        }
+        
     } while (retry);
 }
 
@@ -213,8 +217,8 @@ void task_8(void) {
     FILE *list_file;
     char buffer[CHAR_BUFFER_SIZE];
     DString line;
-    bool in_softare_section;
-    bool in_install_command_section;
+    bool in_software_section;
+    bool in_install_cmd_section;
     bool retry;
     int ch;
     int result;
@@ -239,8 +243,8 @@ void task_8(void) {
         return;
     }
 
-    in_softare_section = false;
-    in_install_command_section = false;
+    in_software_section = false;
+    in_install_cmd_section = false;
     retry = false;
 
     while (fgets(buffer, CHAR_BUFFER_SIZE, list_file) != NULL) {
@@ -287,36 +291,40 @@ void task_8(void) {
         } else if (dstr_start_with_cstr(line, "### ")) {
             // 三级标题，视为软件名称
             printf("\n软件「%s」", dstr_cstr(line) + 4);
-            in_softare_section = true;
-        } else if (in_softare_section && !dstr_start_with_cstr(line, "- ")) {
-            // 在软件名称下的非列表项，视为软件描述
-            printf("\n描述：%s", dstr_cstr(line));
-        } else if (dstr_equal_cstr(line, "```powershell") && in_softare_section) {
+            in_software_section = true;
+        } else if (in_software_section && dstr_equal_cstr(line, "```powershell")) {
             // 在软件名称下遇到 PowerShell 代码块的开始，视为安装命令的开始
-            in_install_command_section = true;
-        } else if (dstr_equal_cstr(line, "```") 
-            && in_install_command_section 
-            && in_softare_section
+            in_install_cmd_section = true;
+        } else if (in_software_section && in_install_cmd_section 
+            && dstr_equal_cstr(line, "```") 
         ) {
             // 在软件名称下遇到 PowerShell 代码块的结束
-            in_install_command_section = false;
-            in_softare_section = false;
-        } else if (in_install_command_section) {
+            in_install_cmd_section = false;
+            in_software_section = false;
+        } else if (in_install_cmd_section) {
             // 在安装命令部分，视为安装命令的一行
             printf("\n安装命令：「%s」", dstr_cstr(line));
             do {
                 powershell_run(dstr_cstr(line), 
                     dstr_start_with_cstr(line, "scoop") ? false : true,
-                    false
+                    true
                 );
                 printf("\n安装命令「%s」\n执行完毕。是否重试？（y/N）", dstr_cstr(line));
 
                 retry = ((ch = getchar()) == 'y' || ch == 'Y');
-                while ((ch = getchar()) != '\n' && ch != EOF)
-                    ;
+                if (ch != '\n') {
+                    while ((ch = getchar()) != '\n' && ch != EOF)
+                        ;
+                }
+                
             } while (retry);
             
-        }
+        } else if (in_software_section && !dstr_start_with_cstr(line, "- ")
+            && !in_install_cmd_section && dstr_length(line) > 0  
+        ) {
+            // 在软件名称下的非列表项，视为软件描述
+            printf("\n描述：%s", dstr_cstr(line));
+        } 
         
         dstr_clear(line);
     }
