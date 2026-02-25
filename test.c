@@ -3,9 +3,9 @@
 
 int main(void) {
 
-    if (isCommandExist("powershell")) {
+    if (command_exist("powershell")) {
         printf("test\n");
-        runProgram("powershell", "-Command \"winget list \"Firefox\";Read-Host\"", false);
+        command_run("powershell", "-Command \"winget list \"Firefox\";Read-Host\"", false);
     } else {
         printf("Powershell is not found.\n");
     }

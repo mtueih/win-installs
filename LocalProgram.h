@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 
-bool isCommandExist(const char *command);
-bool runProgram(const char *program, const char *args, bool runAsAdmin);
+bool command_exist(const char *cmd);
+bool command_run(const char *cmd, const char *args, bool run_as_admin);
 
 #endif

@@ -2,12 +2,11 @@
 #include "dynamic-string.h"
 #include <stdlib.h>
 #include <windows.h>
-#include <shellapi.h>
 #include <stdio.h>
 
-bool isCommandExist(const char *command) {
-    static const char * const verificationCommandSuffix = ">nul 2>&1";
-    static const char * const verificationCommandArguments[] = {
+bool command_exist(const char *cmd) {
+    const char *verify_cmd_suffix = ">nul 2>&1";
+    const char *verify_cmd_args[] = {
         "--version",
         "-v",
         "-V",
@@ -15,64 +14,73 @@ bool isCommandExist(const char *command) {
         "-h",
         "-?"
     };
+    const size_t verify_cmd_args_num = sizeof(verify_cmd_args) / sizeof(verify_cmd_args[0]);
 
-    DString verificationCommand;
+    DString verify_cmd;
     size_t i;
     int result;
     
-    verificationCommand = dstr_create();
-
-    if (!verificationCommand) { 
-        fprintf(stderr, "Failed to create dynamic string for command verification.\n");
+    verify_cmd = dstr_create();
+    if (verify_cmd == NULL) {
+        if (fprintf(
+            stderr, 
+            "[Failure] In function %s: Failed to create DString.\n", 
+            __func__) < 0
+        ) {
+            perror("fprintf");
+        }
         return false;
     }
     
-    for (i = 0; i < sizeof(verificationCommandArguments) 
-            / sizeof(verificationCommandArguments[0]); ++i
-    ) {
-        result = dstr_assign_format(verificationCommand, 
-            "%s %s %s", command, verificationCommandArguments[i], verificationCommandSuffix
+    for (i = 0; i < verify_cmd_args_num; ++i) {
+        result = dstr_assign_format(
+            verify_cmd, "%s %s %s", 
+            cmd, verify_cmd_args[i], verify_cmd_suffix
         );
-
         if (result != DSTRING_SUCCESS) {
-            fprintf(stderr, "Error code %d\n", result);
-            dstr_destroy(verificationCommand);
+            if (fprintf(
+                stderr, 
+                "\n[Failure (%d)] In function %s: Failed to assign format to DString.", 
+                 result, __func__) < 0
+            ) {
+                perror("fprintf");
+            }
+            dstr_destroy(verify_cmd);
             return false;
         }
 
-        if ((system(dstr_cstr(verificationCommand)) == 0)) {
-            puts(dstr_cstr(verificationCommand));
-            dstr_destroy(verificationCommand);
+        if (system(dstr_cstr(verify_cmd)) == 0) {
+            dstr_destroy(verify_cmd);
             return true;
         }
     }
 
-    dstr_destroy(verificationCommand);
+    dstr_destroy(verify_cmd);
     return false;
 }
 
-bool runProgram(const char *program, const char *args, bool runAsAdmin) {
-    SHELLEXECUTEINFO runInfo = { 0 };
+bool command_run(const char *cmd, const char *args, bool run_as_admin) {
+    SHELLEXECUTEINFO run_info;
     BOOL result;
 
-    if (!program) return false;
+    if (cmd == NULL) return false;
 
-    runInfo.cbSize = sizeof(SHELLEXECUTEINFO);
-    runInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
-    runInfo.nShow = SW_SHOWNORMAL;
+    run_info = (SHELLEXECUTEINFO){ 0 };
 
-    runInfo.lpFile = program;
-    runInfo.lpParameters = args;
-    
-    if (runAsAdmin) {
-        runInfo.lpVerb = "runas";
+    run_info.cbSize = sizeof(SHELLEXECUTEINFO);
+    run_info.fMask = SEE_MASK_NOCLOSEPROCESS;
+    run_info.nShow = SW_SHOWNORMAL;
+
+    run_info.lpFile = cmd;
+    run_info.lpParameters = args;
+    if (run_as_admin) {
+        run_info.lpVerb = "runas";
     }
     
-    result = ShellExecuteEx(&runInfo);
-
+    result = ShellExecuteEx(&run_info);
     if (result) {
-        WaitForSingleObject(runInfo.hProcess, INFINITE);
-        CloseHandle(runInfo.hProcess);
+        WaitForSingleObject(run_info.hProcess, INFINITE);
+        CloseHandle(run_info.hProcess);
     }
 
     return result;

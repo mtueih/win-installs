@@ -8,15 +8,14 @@
 #define MAX_TASKS 9
 #define CHAR_BUFFER_SIZE 256
 
-char g_inputBuffer[CHAR_BUFFER_SIZE];
-
 typedef enum {
     ONE_COMMAND,
-    BATCH_COMMAND
+    MULTI_COMMAND,
+    FUNCTION
 } TaskType;
 
 typedef union {
-    const char *commands;
+    const char *command;
     void (*taskfunc)(void);
 } TaskAction;
 
@@ -27,73 +26,72 @@ typedef struct {
     bool run_as_admin;
 } Task;
 
-void task8(void);
-void task9(void);
+void task_8(void);
+void task_9(void);
 
 const Task g_tasks[MAX_TASKS] = {
     { 
         ONE_COMMAND, 
         "开启 UTF-8", 
-        { .commands = "Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\" -Name \"ACP\" -Value \"65001\"; Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\" -Name \"MACCP\" -Value \"65001\"; Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\" -Name \"OEMCP\" -Value \"65001\"" 
-        }, 
-        true 
+        { .command = "Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\" -Name \"ACP\" -Value \"65001\"; Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\" -Name \"MACCP\" -Value \"65001\"; Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\" -Name \"OEMCP\" -Value \"65001\"" }, 
+        true
     },
     { 
         ONE_COMMAND, 
         "修改脚本策略为「RemoteSigned」（当前用户）", 
-        { .commands = "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" }, 
+        { .command = "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" }, 
         false 
     },
     { 
-        ONE_COMMAND, 
+        ONE_COMMAND,
         "安装「Chocolatey」", 
-        { .commands = "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString(\'https://community.chocolatey.org/install.ps1\'))" }, 
-        true 
+        { .command = "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString(\'https://community.chocolatey.org/install.ps1\'))" }, 
+        true
     },
     { 
         ONE_COMMAND, 
         "安装「Scoop」", 
-        { .commands = "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression" }, 
-        false 
+        { .command = "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression" }, 
+        false
     },
-    { 
+    {
         ONE_COMMAND, 
         "Chocolatey 安装「Cloudfalre Warp」", 
-        { .commands = "choco install warp  -y --ia 'ORGANIZATION=saibohuofoyyds'" }, 
-        true 
+        { .command = "choco install warp  -y --ia 'ORGANIZATION=saibohuofoyyds'" }, 
+        true
     },
     { 
-        ONE_COMMAND, 
-        "Scoop 安装基础工具（Git、7Zip、dark 和 innounp 等）", 
-        { .commands = "scoop install git 7zip dark innounp" }, 
-        false 
+        ONE_COMMAND,
+        "Scoop 安装基础工具（Git、7Zip、dark 和 innounp 等）",
+        { .command = "scoop install git 7zip dark innounp" },
+        false
     },
     { 
-        ONE_COMMAND, 
-        "Scoop 添加常用「Bucket」", 
-        { .commands = "scoop bucket add extras" }, 
-        false 
+        ONE_COMMAND,
+        "Scoop 添加常用「Bucket」",
+        { .command = "scoop bucket add extras nonportable nerd-fonts" },
+        false
     },
     { 
-        BATCH_COMMAND, 
-        "安装必备软件（Windows 必装软件.md）", 
-        { .taskfunc = task8 }, 
-        false 
+        FUNCTION,
+        "安装必备软件（Windows 必装软件.md）",
+        { .taskfunc = task_8 },
+        false
     },
     { 
-        BATCH_COMMAND, 
+        FUNCTION, 
         "依次执行上述 1-8", 
-        { .taskfunc = task9 }, 
-        false 
+        { .taskfunc = task_9 }, 
+        false
     }
 };
 
 
-void printMenu(void);
+inline void printMenu(void);
 int getChoice(void);
-void run_task(const Task *task);
-void task_one_command(const Task *task);
-void runByPowershell(const char *command, bool admin, bool wait);
+void task_run(const Task *task, int task_num);
+void task_one_cmd_run(const Task *task);
+void powershell_run(const char *cmd, bool admin, bool wait);
 
 int main(void) {
     system("chcp 65001");
@@ -102,25 +100,19 @@ int main(void) {
 
     do {
         choice = getChoice();
-        if (!choice) break;
-
-        run_task(&g_tasks[choice - 1]);
-
+        if (choice == 0) break;
+        task_run(&g_tasks[choice - 1], choice);
     } while (choice);
     
     printf("感谢使用！");
-
     return 0;
 }
 
 void printMenu(void) {
-
     int i;
-
     for (i = 0; i < MAX_TASKS; ++i) {
         printf("\n【%d】%s", i + 1, g_tasks[i].description);
     }
-
     printf("\n【0】退出\n");
 }
 
@@ -143,104 +135,143 @@ int getChoice(void) {
     return choice;
 }
 
-void runByPowershell(const char *command, bool admin, bool wait) {
-    if (!command) return;
-    
-    DString cmd_args_str = dstr_create();
+void powershell_run(const char *cmd, bool admin, bool wait) {
+    DString cmd_args;
+    int result;
 
-    if (!cmd_args_str) {
-        fprintf(stderr, "Failed to create dynamic string for command arguments.\n");
+    if (cmd == NULL) return;
+
+    cmd_args = dstr_create();
+    if (cmd_args != DSTRING_SUCCESS) {
+        if (fprintf(
+            stderr, 
+            "[Failure] In function %s: Failed to create DString.\n", 
+            __func__) < 0
+        ) {
+            perror("fprintf");
+        }
         return;
     }
 
-    dstr_assign_format(cmd_args_str, "-Command \"%s%s\"", command, 
-        wait ? " ; Read-Host \"按 Enter 键退出...\"" : ""
+    result = dstr_assign_format(
+        cmd_args, "-Command \"%s%s\"", 
+        cmd, wait ? " ; Read-Host \"Press Enter to exit...\"" : ""
     );
 
-    runProgram("powershell", dstr_cstr(cmd_args_str), true);
+    if (result != DSTRING_SUCCESS) {
+        if (fprintf(
+            stderr, 
+            "\n[Failure (%d)] In function %s: Failed to assign format to DString.", 
+             result, __func__) < 0
+        ) {
+            perror("fprintf");
+        }
+        dstr_destroy(cmd_args);
+        return;
+    }
 
-    dstr_destroy(cmd_args_str);
+    command_run("powershell", dstr_cstr(cmd_args), admin);
+
+    dstr_destroy(cmd_args);
 }
 
-void task_one_command(const Task *task) {
+void task_one_cmd_run(const Task *task) {
     printf("\n命令「%s」\n将使用 Windows Powershell 以%s身份执行。 \n", 
-        task->action.commands,
+        task->action.command,
         task->run_as_admin ? "管理员" : "当前用户"
     );
     
-    runByPowershell(task->action.commands, task->run_as_admin, true);
+    powershell_run(task->action.command, task->run_as_admin, true);
 }
 
-void run_task(const Task *task) {
+void task_run(const Task *task, int task_num) {
     bool retry = false;
     int ch;
-    char input[2] = "N";
 
     do {
         system("cls");
-        printf("\n%s", task->description);
+        printf("\n【%d】%s", task_num, task->description);
 
         if (task->type == ONE_COMMAND) {
-             task_one_command(task);
-        } else if (task->type == BATCH_COMMAND) {
+             task_one_cmd_run(task);
+        } else if (task->type == FUNCTION) {
              task->action.taskfunc();
         } else {
             fprintf(stderr, "未知的任务类型！\n");
         }
 
         printf("\n任务【%s】\n执行完毕。是否重试？（y/N）", task->description);
-        scanf("%1s", input);
-        retry = (input[0] == 'y' || input[0] == 'Y');
+
+        retry = ((ch = getchar()) == 'y' || ch == 'Y');
         while ((ch = getchar()) != '\n' && ch != EOF)
             ;
     } while (retry);
 }
 
-void task8(void) {
-    const char * const list_file_path = "Windows 必装软件.md";
+void task_8(void) {
+    const char *list_file_path = "Windows 必装软件.md";
     FILE *list_file;
+    char buffer[CHAR_BUFFER_SIZE];
     DString line;
-    size_t len;
     bool in_softare_section;
     bool in_install_command_section;
     bool retry;
-    char input[2] = "N";
     int ch;
+    int result;
 
     printf("\n读取文件「%s」", list_file_path);
     list_file = fopen(list_file_path, "r");
-    if (!list_file) {
-        fprintf(stderr, "\n无法打开文件：「%s」", list_file_path);
+    if (list_file == NULL) {
+        perror("fopen");
         return;
     }
 
     line = dstr_create();
-    if (!line) {
-        fprintf(stderr, "\n无法创建动态字符串来读取文件内容。");
+    if (line == NULL) {
+        if (fprintf(
+            stderr, 
+            "[Failure] In function %s: Failed to create DString.\n", 
+            __func__) < 0
+        ) {
+            perror("fprintf");
+        }
         fclose(list_file);
         return;
     }
+
     in_softare_section = false;
     in_install_command_section = false;
     retry = false;
 
-    while (fgets(g_inputBuffer, CHAR_BUFFER_SIZE, list_file) != NULL) {
+    while (fgets(buffer, CHAR_BUFFER_SIZE, list_file) != NULL) {
         // 如果没有完整读取一行，则将当前内容追加到 line 中，并继续读取
-        len = strlen(g_inputBuffer);
-        if (g_inputBuffer[len - 1] != '\n') {
-            if (!dstr_append_cstr(line, g_inputBuffer)) {
-                fprintf(stderr, "\n无法追加读取的内容到动态字符串。");
-                dstr_destroy(line);
-                fclose(list_file);
-                return;
+        result = dstr_append_cstr(line, buffer);
+        if (result != DSTRING_SUCCESS) {
+            if (fprintf(
+                stderr, 
+                "\n[Failure (%d)] In function %s: Failed to append cstr to DString.", 
+                 result, __func__) < 0
+            ) {
+                perror("fprintf");
             }
+            dstr_destroy(line);
+            fclose(list_file);
+            return;
+        }
+        // 判断有没有读完一行
+        if (!dstr_end_with_cstr(line, "\n")) {
             continue;
         }
-
         // 读取到完整的一行，此时去除默认 '\n'
-        g_inputBuffer[len - 1] = '\0';
-        if (!dstr_append_cstr(line, g_inputBuffer)) {
-            fprintf(stderr, "\n无法追加读取的内容到动态字符串。");
+        result = dstr_erase(line, dstr_length(line) - 1, 1);
+        if (result != DSTRING_SUCCESS) {
+            if (fprintf(
+                stderr, 
+                "\n[Failure (%d)] In function %s: Failed to erase from DString.", 
+                 result, __func__) < 0
+            ) {
+                perror("fprintf");
+            }
             dstr_destroy(line);
             fclose(list_file);
             return;
@@ -274,13 +305,13 @@ void task8(void) {
             // 在安装命令部分，视为安装命令的一行
             printf("\n安装命令：「%s」", dstr_cstr(line));
             do {
-                runByPowershell(dstr_cstr(line), 
+                powershell_run(dstr_cstr(line), 
                     dstr_start_with_cstr(line, "scoop") ? false : true,
                     false
                 );
                 printf("\n安装命令「%s」\n执行完毕。是否重试？（y/N）", dstr_cstr(line));
-                scanf("%1s", input);
-                retry = (input[0] == 'y' || input[0] == 'Y');
+
+                retry = ((ch = getchar()) == 'y' || ch == 'Y');
                 while ((ch = getchar()) != '\n' && ch != EOF)
                     ;
             } while (retry);
@@ -290,12 +321,14 @@ void task8(void) {
         dstr_clear(line);
     }
 
+    dstr_destroy(line);
+    fclose(list_file);
 }
 
-void task9(void) {
-    size_t i;
+void task_9(void) {
+    int i;
 
     for (i = 0; i < MAX_TASKS - 1; ++i) {
-        run_task(&g_tasks[i]);
+        task_run(&g_tasks[i], i + 1);
     }
 }
